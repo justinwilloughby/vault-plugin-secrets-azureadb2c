@@ -9,16 +9,28 @@ import (
 	"github.com/hashicorp/vault/sdk/logical"
 	msgraphsdkgo "github.com/microsoftgraph/msgraph-beta-sdk-go"
 	graphmodels "github.com/microsoftgraph/msgraph-beta-sdk-go/models"
+	graphtrustframework "github.com/microsoftgraph/msgraph-beta-sdk-go/trustframework"
 )
 
 func pathKeys(b *backend) []*framework.Path {
 	return []*framework.Path{
+		{
+			Pattern: "keysets/?$",
+			Operations: map[logical.Operation]framework.OperationHandler{
+				logical.ListOperation: &framework.PathOperation{
+					Callback: b.pathKeySetsList,
+				},
+			},
+			HelpSynopsis:    "",
+			HelpDescription: "",
+		},
 		{
 			Pattern: "keysets/" + framework.GenericNameRegex("id"),
 			Fields: map[string]*framework.FieldSchema{
 				"id": {
 					Type:        framework.TypeString,
 					Description: "KeySet ID (eg. B2C_1A_RestApiKey)",
+					Required:    true,
 				},
 			},
 			Operations: map[logical.Operation]framework.OperationHandler{
@@ -28,16 +40,63 @@ func pathKeys(b *backend) []*framework.Path {
 				logical.CreateOperation: &framework.PathOperation{
 					Callback: b.pathKeySetsCreate,
 				},
+				logical.DeleteOperation: &framework.PathOperation{
+					Callback: b.pathKeySetsDelete,
+				},
 			},
 			ExistenceCheck:  b.pathKeySetsExistenceCheck,
 			HelpSynopsis:    "",
 			HelpDescription: "",
 		},
 		{
-			Pattern: "keysets/?$",
+			Pattern: "keysets/" + framework.GenericNameRegex("id") + "/uploadSecret",
+			Fields: map[string]*framework.FieldSchema{
+				"id": {
+					Type:        framework.TypeString,
+					Description: "KeySet ID (eg. B2C_1A_RestApiKey)",
+					Required:    true,
+				},
+				"secret": {
+					Type:        framework.TypeString,
+					Description: "Secret to upload",
+					Required:    true,
+				},
+				"use": {
+					Type:        framework.TypeString,
+					Description: "Use of the secret",
+					Default:     "sig",
+				},
+			},
 			Operations: map[logical.Operation]framework.OperationHandler{
-				logical.ListOperation: &framework.PathOperation{
-					Callback: b.pathKeySetsList,
+				logical.UpdateOperation: &framework.PathOperation{
+					Callback: b.pathKeySetsUploadSecret,
+				},
+			},
+			HelpSynopsis:    "",
+			HelpDescription: "",
+		},
+		{
+			Pattern: "keysets/" + framework.GenericNameRegex("id") + "/generateKey",
+			Fields: map[string]*framework.FieldSchema{
+				"id": {
+					Type:        framework.TypeString,
+					Description: "KeySet ID (eg. B2C_1A_RestApiKey)",
+					Required:    true,
+				},
+				"use": {
+					Type:        framework.TypeString,
+					Description: "Use of the secret",
+					Default:     "sig",
+				},
+				"kty": {
+					Type:        framework.TypeString,
+					Description: "Key type",
+					Default:     "RSA",
+				},
+			},
+			Operations: map[logical.Operation]framework.OperationHandler{
+				logical.UpdateOperation: &framework.PathOperation{
+					Callback: b.pathKeySetsGenerateKey,
 				},
 			},
 			HelpSynopsis:    "",
@@ -168,6 +227,89 @@ func (b *backend) pathKeySetsCreate(ctx context.Context, req *logical.Request, d
 	requestBody.SetId(&id)
 
 	_, err = client.TrustFramework().KeySets().Post(ctx, requestBody, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+func (b *backend) pathKeySetsUploadSecret(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	id := data.Get("id").(string)
+	k := data.Get("secret").(string)
+	use := data.Get("use").(string)
+
+	// If ID not provided or not in the for of B2C_1A_.*, return error
+	if !strings.HasPrefix(id, "B2C_1A_") {
+		return logical.ErrorResponse("ID must start with B2C_1A_"), nil
+	}
+
+	client, err := b.GetClient(ctx, req.Storage)
+	if err != nil {
+		return nil, err
+	}
+
+	requestBody := graphtrustframework.NewKeySetsItemUploadSecretPostRequestBody()
+	requestBody.SetUse(&use)
+	requestBody.SetK(&k)
+	nbf := time.Now().Unix()
+	requestBody.SetNbf(&nbf)
+	exp := time.Now().Add(time.Hour * 24 * 365).Unix()
+	requestBody.SetExp(&exp)
+
+	_, err = client.TrustFramework().KeySets().ByTrustFrameworkKeySetId(id).UploadSecret().Post(context.Background(), requestBody, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+func (b *backend) pathKeySetsDelete(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	id := data.Get("id").(string)
+
+	// If ID not provided or not in the for of B2C_1A_.*, return error
+	if !strings.HasPrefix(id, "B2C_1A_") {
+		return logical.ErrorResponse("ID must start with B2C_1A_"), nil
+	}
+
+	client, err := b.GetClient(ctx, req.Storage)
+	if err != nil {
+		return nil, err
+	}
+
+	err = client.TrustFramework().KeySets().ByTrustFrameworkKeySetId(id).Delete(context.Background(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return nil, nil
+}
+
+func (b *backend) pathKeySetsGenerateKey(ctx context.Context, req *logical.Request, data *framework.FieldData) (*logical.Response, error) {
+	id := data.Get("id").(string)
+	use := data.Get("use").(string)
+	kty := data.Get("kty").(string)
+
+	// If ID not provided or not in the for of B2C_1A_.*, return error
+	if !strings.HasPrefix(id, "B2C_1A_") {
+		return logical.ErrorResponse("ID must start with B2C_1A_"), nil
+	}
+
+	client, err := b.GetClient(ctx, req.Storage)
+	if err != nil {
+		return nil, err
+	}
+
+	requestBody := graphtrustframework.NewKeySetsItemGenerateKeyPostRequestBody()
+	requestBody.SetUse(&use)
+	requestBody.SetKty(&kty)
+	nbf := time.Now().Unix()
+	requestBody.SetNbf(&nbf)
+	exp := time.Now().Add(time.Hour * 24 * 365).Unix()
+	requestBody.SetExp(&exp)
+
+	_, err = client.TrustFramework().KeySets().ByTrustFrameworkKeySetId(id).GenerateKey().Post(context.Background(), requestBody, nil)
 	if err != nil {
 		return nil, err
 	}
