@@ -8,20 +8,15 @@ import (
 )
 
 type AzureConfig struct {
-	SubscriptionID string `json:"subscription_id"`
-	TenantID       string `json:"tenant_id"`
-	ClientID       string `json:"client_id"`
-	ClientSecret   string `json:"client_secret"`
+	TenantID     string `json:"tenant_id"`
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
 }
 
 func pathConfig(b *backend) *framework.Path {
 	return &framework.Path{
 		Pattern: "config",
 		Fields: map[string]*framework.FieldSchema{
-			"subscription_id": {
-				Type:        framework.TypeString,
-				Description: "Azure Subscription ID",
-			},
 			"tenant_id": {
 				Type:        framework.TypeString,
 				Description: "Azure Tenant ID",
@@ -60,10 +55,9 @@ func (b *backend) pathConfigRead(ctx context.Context, req *logical.Request, data
 
 	return &logical.Response{
 		Data: map[string]interface{}{
-			"subscription_id": config.SubscriptionID,
-			"tenant_id":       config.TenantID,
-			"client_id":       config.ClientID,
-			"client_secret":   config.ClientSecret,
+			"tenant_id":     config.TenantID,
+			"client_id":     config.ClientID,
+			"client_secret": config.ClientSecret,
 		},
 	}, nil
 }
@@ -92,10 +86,6 @@ func (b *backend) pathConfigWrite(ctx context.Context, req *logical.Request, dat
 
 	if config == nil {
 		config = new(AzureConfig)
-	}
-
-	if subscriptionID, ok := data.GetOk("subscription_id"); ok {
-		config.SubscriptionID = subscriptionID.(string)
 	}
 
 	if tenantID, ok := data.GetOk("tenant_id"); ok {
